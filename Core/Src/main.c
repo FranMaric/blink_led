@@ -118,7 +118,12 @@ int main(void)
 
 	  sprintf(uart_message, "Encoder counter = %d Angle = %d\n\r", TIM2->CNT, angle);
 	  HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
-	  HAL_Delay(200);
+
+	  // Flash led
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+	  HAL_Delay(50);
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+	  HAL_Delay(150);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
