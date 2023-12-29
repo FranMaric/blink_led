@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include <stdio.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -60,12 +61,8 @@ static void MX_TIM2_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// 2^16 / 2 = 32768 this number was chosen as the middle to avoid overflowing or underflowing the buffer
-// Encoder is expected to stay within one turn away from this neutral position
-// Because of that buffer overflow is not checked
-const uint16_t INITIAL_TIMER_COUNT = 32768;
-
-const uint16_t ENCODER_TICKS_PER_REVOLUTION = 4000;
+// CONSTANTS
+#define ENCODER_TICKS_PER_REVOLUTION 4000
 
 /* USER CODE END 0 */
 
@@ -76,9 +73,7 @@ const uint16_t ENCODER_TICKS_PER_REVOLUTION = 4000;
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	int32_t angle = 0;
-	uint8_t uart_message[50] = {'\0'};
-
+	uint8_t uart_message[100] = {'\0'};
 
   /* USER CODE END 1 */
 
@@ -88,6 +83,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
+  uint32_t previous_encoder_counter = 0;
+  uint32_t current_encoder_counter = 0;
 
   /* USER CODE END Init */
 
@@ -106,7 +104,9 @@ int main(void)
 
   HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
 
-  TIM2->CNT = INITIAL_TIMER_COUNT;
+  // calculated every iteration
+  int32_t encoder_velocity_in_ticks = 0;
+  int64_t angle_in_ticks = 0;
 
   /* USER CODE END 2 */
 
@@ -114,16 +114,45 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  angle = TIM2->CNT - INITIAL_TIMER_COUNT;
+	// Encoder loop
+	current_encoder_counter = __HAL_TIM_GET_COUNTER(&htim2);
 
-	  sprintf(uart_message, "Encoder counter = %d Angle = %d\n\r", TIM2->CNT, angle);
-	  HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+	if (previous_encoder_counter == current_encoder_counter) {
+		encoder_velocity_in_ticks = 0;
 
-	  // Flash led
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-	  HAL_Delay(50);
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-	  HAL_Delay(150);
+	} else if (current_encoder_counter > previous_encoder_counter) {
+
+		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
+			// underflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
+			encoder_velocity_in_ticks = -previous_encoder_counter - (__HAL_TIM_GET_AUTORELOAD(&htim2) - current_encoder_counter);
+		} else {
+			encoder_velocity_in_ticks = current_encoder_counter - previous_encoder_counter;
+		}
+
+	} else {
+
+		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
+			encoder_velocity_in_ticks = current_encoder_counter - previous_encoder_counter;
+		} else {
+			// overflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
+			encoder_velocity_in_ticks = (__HAL_TIM_GET_AUTORELOAD(&htim2) - previous_encoder_counter) + current_encoder_counter;
+		}
+	}
+
+	previous_encoder_counter = current_encoder_counter;
+	angle_in_ticks += encoder_velocity_in_ticks;
+
+	double angle = (double)angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 360.0;
+
+	// UART communication
+	sprintf(uart_message, "angle %d \n\r", current_encoder_counter, encoder_velocity_in_ticks, (int)angle);
+	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+
+	// Flash led
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+	HAL_Delay(20);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+	HAL_Delay(40);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
