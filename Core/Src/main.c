@@ -103,8 +103,8 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 	encoder->previous_count = current_count;
 	encoder->angle_in_ticks += encoder->velocity_in_ticks;
 
-	encoder->velocity_in_radian =  (double) encoder->velocity_in_ticks / ENCODER_TICKS_PER_REVOLUTION * PI;
-	encoder->angle_in_radian = (double) encoder->angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * PI;
+	encoder->velocity_in_radian =  (double) encoder->velocity_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 2 * PI;
+	encoder->angle_in_radian = (double) encoder->angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 2 * PI;
 }
 
 /* USER CODE END 0 */
@@ -162,7 +162,7 @@ int main(void)
 	update_rotary_encoder(&encoder1, &htim2);
 
 	// UART communication
-	sprintf(uart_message, "count %u angle %d \n\r", encoder1.previous_count, (int)encoder1.angle_in_radian);
+	sprintf(uart_message, "count %u angle %.5f \n\r", encoder1.previous_count, encoder1.angle_in_radian);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
 	// Flash led
