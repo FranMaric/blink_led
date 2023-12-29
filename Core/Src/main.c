@@ -63,12 +63,15 @@ static void MX_TIM2_Init(void);
 
 // CONSTANTS
 #define ENCODER_TICKS_PER_REVOLUTION 4000
-
+#define PI 3.14159265358979323846
 
 typedef struct {
 	uint32_t previous_count;
 	int32_t velocity_in_ticks;
 	int64_t angle_in_ticks;
+
+	double velocity_in_radian;
+	double angle_in_radian;
 } rotary_encoder;
 
 
@@ -81,7 +84,7 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 	} else if (current_count > encoder->previous_count) {
 
 		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
-			// underflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
+			// underflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
 			encoder->velocity_in_ticks = -encoder->previous_count - (__HAL_TIM_GET_AUTORELOAD(htim) - current_count);
 		} else {
 			encoder->velocity_in_ticks = current_count - encoder->previous_count;
@@ -92,13 +95,16 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
 			encoder->velocity_in_ticks = current_count - encoder->previous_count;
 		} else {
-			// overflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
+			// overflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
 			encoder->velocity_in_ticks = (__HAL_TIM_GET_AUTORELOAD(htim) - encoder->previous_count) + current_count;
 		}
 	}
 
 	encoder->previous_count = current_count;
 	encoder->angle_in_ticks += encoder->velocity_in_ticks;
+
+	encoder->velocity_in_radian =  (double) encoder->velocity_in_ticks / ENCODER_TICKS_PER_REVOLUTION * PI;
+	encoder->angle_in_radian = (double) encoder->angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * PI;
 }
 
 /* USER CODE END 0 */
@@ -143,6 +149,8 @@ int main(void)
   encoder1.angle_in_ticks = 0;
   encoder1.previous_count = 0;
   encoder1.velocity_in_ticks = 0;
+  encoder1.velocity_in_radian = 0;
+  encoder1.angle_in_radian = 0;
 
   /* USER CODE END 2 */
 
@@ -151,12 +159,10 @@ int main(void)
   while (1)
   {
 	// Encoder loop
-	  update_rotary_encoder(&encoder1, &htim2);
-
-	double angle = (double)encoder1.angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 360.0;
+	update_rotary_encoder(&encoder1, &htim2);
 
 	// UART communication
-	sprintf(uart_message, "angle %d \n\r", (int)angle);
+	sprintf(uart_message, "count %u angle %d \n\r", encoder1.previous_count, (int)encoder1.angle_in_radian);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
 	// Flash led
