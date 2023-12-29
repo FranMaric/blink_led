@@ -64,6 +64,43 @@ static void MX_TIM2_Init(void);
 // CONSTANTS
 #define ENCODER_TICKS_PER_REVOLUTION 4000
 
+
+typedef struct {
+	uint32_t previous_count;
+	int32_t velocity_in_ticks;
+	int64_t angle_in_ticks;
+} rotary_encoder;
+
+
+void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
+	uint32_t current_count = __HAL_TIM_GET_COUNTER(htim);
+
+	if (encoder->previous_count == current_count) {
+		encoder->velocity_in_ticks = 0;
+
+	} else if (current_count > encoder->previous_count) {
+
+		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
+			// underflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
+			encoder->velocity_in_ticks = -encoder->previous_count - (__HAL_TIM_GET_AUTORELOAD(htim) - current_count);
+		} else {
+			encoder->velocity_in_ticks = current_count - encoder->previous_count;
+		}
+
+	} else {
+
+		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
+			encoder->velocity_in_ticks = current_count - encoder->previous_count;
+		} else {
+			// overflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
+			encoder->velocity_in_ticks = (__HAL_TIM_GET_AUTORELOAD(htim) - encoder->previous_count) + current_count;
+		}
+	}
+
+	encoder->previous_count = current_count;
+	encoder->angle_in_ticks += encoder->velocity_in_ticks;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -73,7 +110,6 @@ static void MX_TIM2_Init(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	uint8_t uart_message[100] = {'\0'};
 
   /* USER CODE END 1 */
 
@@ -83,9 +119,6 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
-  uint32_t previous_encoder_counter = 0;
-  uint32_t current_encoder_counter = 0;
 
   /* USER CODE END Init */
 
@@ -104,9 +137,12 @@ int main(void)
 
   HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
 
-  // calculated every iteration
-  int32_t encoder_velocity_in_ticks = 0;
-  int64_t angle_in_ticks = 0;
+  uint8_t uart_message[100] = {'\0'};
+
+  rotary_encoder encoder1;
+  encoder1.angle_in_ticks = 0;
+  encoder1.previous_count = 0;
+  encoder1.velocity_in_ticks = 0;
 
   /* USER CODE END 2 */
 
@@ -115,37 +151,12 @@ int main(void)
   while (1)
   {
 	// Encoder loop
-	current_encoder_counter = __HAL_TIM_GET_COUNTER(&htim2);
+	  update_rotary_encoder(&encoder1, &htim2);
 
-	if (previous_encoder_counter == current_encoder_counter) {
-		encoder_velocity_in_ticks = 0;
-
-	} else if (current_encoder_counter > previous_encoder_counter) {
-
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
-			// underflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder_velocity_in_ticks = -previous_encoder_counter - (__HAL_TIM_GET_AUTORELOAD(&htim2) - current_encoder_counter);
-		} else {
-			encoder_velocity_in_ticks = current_encoder_counter - previous_encoder_counter;
-		}
-
-	} else {
-
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
-			encoder_velocity_in_ticks = current_encoder_counter - previous_encoder_counter;
-		} else {
-			// overflow happend, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder_velocity_in_ticks = (__HAL_TIM_GET_AUTORELOAD(&htim2) - previous_encoder_counter) + current_encoder_counter;
-		}
-	}
-
-	previous_encoder_counter = current_encoder_counter;
-	angle_in_ticks += encoder_velocity_in_ticks;
-
-	double angle = (double)angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 360.0;
+	double angle = (double)encoder1.angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 360.0;
 
 	// UART communication
-	sprintf(uart_message, "angle %d \n\r", current_encoder_counter, encoder_velocity_in_ticks, (int)angle);
+	sprintf(uart_message, "angle %d \n\r", (int)angle);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
 	// Flash led
