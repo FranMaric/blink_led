@@ -69,47 +69,63 @@ static void MX_ADC1_Init(void);
 #define ENCODER_TICKS_PER_REVOLUTION 4000
 #define PI 3.14159265358979323846
 
+uint8_t uart_message[100] = {'\0'};
+
 typedef struct {
 	uint32_t previous_count;
 
-	int32_t velocity_in_ticks;
+	int32_t velocity_in_ticks_per_iteration;
 	int64_t angle_in_ticks;
 
-	double velocity_in_radian;
+	double velocity_in_radian_per_second;
 	double angle_in_radian;
+
+	uint32_t previous_time;
 } rotary_encoder;
 
 
 void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 	uint32_t current_count = __HAL_TIM_GET_COUNTER(htim);
+	uint32_t current_time = HAL_GetTick();
 
 	if (encoder->previous_count == current_count) {
-		encoder->velocity_in_ticks = 0;
+		encoder->velocity_in_ticks_per_iteration = 0;
 
 	} else if (current_count > encoder->previous_count) {
 
 		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
 			// underflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder->velocity_in_ticks = -encoder->previous_count - (__HAL_TIM_GET_AUTORELOAD(htim) - current_count);
+			encoder->velocity_in_ticks_per_iteration = -encoder->previous_count - (__HAL_TIM_GET_AUTORELOAD(htim) - current_count);
 		} else {
-			encoder->velocity_in_ticks = current_count - encoder->previous_count;
+			encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
 		}
 
 	} else {
 
 		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
-			encoder->velocity_in_ticks = current_count - encoder->previous_count;
+			encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
 		} else {
 			// overflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder->velocity_in_ticks = (__HAL_TIM_GET_AUTORELOAD(htim) - encoder->previous_count) + current_count;
+			encoder->velocity_in_ticks_per_iteration = (__HAL_TIM_GET_AUTORELOAD(htim) - encoder->previous_count) + current_count;
 		}
 	}
 
-	encoder->previous_count = current_count;
-	encoder->angle_in_ticks += encoder->velocity_in_ticks;
+	float elapsed_time_seconds;
 
-	encoder->velocity_in_radian =  (double) encoder->velocity_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 2 * PI;
+	if (current_time >= encoder->previous_time) {
+		// overflow happened
+		elapsed_time_seconds = (current_time - encoder->previous_time) / 1000.0f;
+	} else {
+		elapsed_time_seconds = (UINT32_MAX - current_time + encoder->previous_time) / 1000.0f;
+	}
+
+	encoder->velocity_in_radian_per_second =  (double) encoder->velocity_in_ticks_per_iteration / ENCODER_TICKS_PER_REVOLUTION * 2 * PI / elapsed_time_seconds;
+
+	encoder->angle_in_ticks += encoder->velocity_in_ticks_per_iteration;
 	encoder->angle_in_radian = (double) encoder->angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 2 * PI;
+
+	encoder->previous_count = current_count;
+	encoder->previous_time = current_time;
 }
 
 /* USER CODE END 0 */
@@ -149,25 +165,25 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
-
-  uint8_t uart_message[100] = {'\0'};
+  HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
 
   rotary_encoder encoder1;
   encoder1.angle_in_ticks = 0;
   encoder1.previous_count = 0;
-  encoder1.velocity_in_ticks = 0;
-  encoder1.velocity_in_radian = 0;
+  encoder1.velocity_in_ticks_per_iteration = 0;
+  encoder1.velocity_in_radian_per_second = 0;
   encoder1.angle_in_radian = 0;
+  encoder1.previous_time = HAL_GetTick();
 
   rotary_encoder motor_encoder;
   motor_encoder.angle_in_ticks = 0;
   motor_encoder.previous_count = 0;
-  motor_encoder.velocity_in_ticks = 0;
-  motor_encoder.velocity_in_radian = 0;
+  motor_encoder.velocity_in_ticks_per_iteration = 0;
+  motor_encoder.velocity_in_radian_per_second = 0;
   motor_encoder.angle_in_radian = 0;
+  motor_encoder.previous_time = HAL_GetTick();
 
-  uint16_t adc_channel_6;
-  uint16_t adc_channel_7;
+
 
   /* USER CODE END 2 */
 
@@ -176,20 +192,11 @@ int main(void)
   while (1)
   {
 	// Encoder loop
-	update_rotary_encoder(&encoder1, &htim2);
+//	update_rotary_encoder(&encoder1, &htim2);
 	update_rotary_encoder(&motor_encoder, &htim3);
 
-	HAL_ADC_Start(&hadc1);
-	HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-	adc_channel_6 = HAL_ADC_GetValue(&hadc1);
-
-	HAL_ADC_Start(&hadc1);
-	HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-	adc_channel_7 = HAL_ADC_GetValue(&hadc1);
-
-
 	// UART communication
-	sprintf(uart_message, "adc_channel_6: %u adc_channel_7: %u \n\r", adc_channel_6, adc_channel_7);
+	sprintf(uart_message, "angular rad/sec: %f \n\r", motor_encoder.velocity_in_radian_per_second);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
 	// Flash led
