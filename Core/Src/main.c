@@ -42,7 +42,9 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart2;
 
@@ -56,6 +58,8 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -64,7 +68,7 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN 0 */
 
 // CONSTANTS
-#define ENCODER_TICKS_PER_REVOLUTION 4000
+#define ENCODER_TICKS_PER_REVOLUTION 2000
 #define PI 3.14159265358979323846
 
 uint8_t uart_message[100] = {'\0'};
@@ -164,10 +168,12 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   MX_ADC1_Init();
+  MX_TIM1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
-//  HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
-//  HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
+  HAL_TIM_Encoder_Start_IT(&htim1, TIM_CHANNEL_ALL);
+  HAL_TIM_Encoder_Start_IT(&htim4, TIM_CHANNEL_ALL);
 
   rotary_encoder encoder1;
   encoder1.angle_in_ticks = 0;
@@ -187,13 +193,13 @@ int main(void)
 
   // setup motor
 
-  TIM2->CCR3 = 80;
+  TIM2->CCR3 = 0;
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
 
-  HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 0);
-  HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 1);
-
-  HAL_GPIO_WritePin(MOTOR_ENABLE_GPIO_Port, MOTOR_ENABLE_Pin, 1);
+//  HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 0);
+//  HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 1);
+//
+//  HAL_GPIO_WritePin(MOTOR_ENABLE_GPIO_Port, MOTOR_ENABLE_Pin, 1);
 
   /* USER CODE END 2 */
 
@@ -202,21 +208,21 @@ int main(void)
   while (1)
   {
 	// Encoder loop
-//	update_rotary_encoder(&encoder1, &htim2);
-//	update_rotary_encoder(&motor_encoder, &htim3);
-//
-//	// UART communication
-//	sprintf(uart_message, "angular rad/sec: %f \n\r", motor_encoder.velocity_in_radian_per_second);
-//	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+	update_rotary_encoder(&encoder1, &htim4);
+	update_rotary_encoder(&motor_encoder, &htim1);
 
-	  TIM2->CCR3 = 20;
-	  HAL_Delay(1000);
-	  TIM2->CCR3 = 40;
-	  HAL_Delay(1000);
-	  TIM2->CCR3 = 60;
-	  HAL_Delay(1000);
-	  TIM2->CCR3 = 80;
-	  HAL_Delay(1000);
+//	// UART communication
+	sprintf(uart_message, "motor angle: %f njihalo angle: %f \n\r", motor_encoder.angle_in_radian, encoder1.angle_in_radian);
+	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+
+//	  TIM2->CCR3 = 20;
+//	  HAL_Delay(1000);
+//	  TIM2->CCR3 = 40;
+//	  HAL_Delay(1000);
+//	  TIM2->CCR3 = 60;
+//	  HAL_Delay(1000);
+//	  TIM2->CCR3 = 80;
+//	  HAL_Delay(1000);
 	// Flash led
 //	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
 //	HAL_Delay(20);
@@ -328,6 +334,56 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_FALLING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_FALLING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -383,6 +439,55 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_FALLING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_FALLING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim4, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
