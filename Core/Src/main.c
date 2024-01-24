@@ -43,7 +43,6 @@
 ADC_HandleTypeDef hadc1;
 
 TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
@@ -56,7 +55,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -128,6 +126,11 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 	encoder->previous_time = current_time;
 }
 
+// percentage should a number between 0 and 100
+void set_motor_duty_cycle(uint8_t percentage) {
+
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -160,12 +163,11 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
-  MX_TIM3_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
-  HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
+//  HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
+//  HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
 
   rotary_encoder encoder1;
   encoder1.angle_in_ticks = 0;
@@ -183,7 +185,15 @@ int main(void)
   motor_encoder.angle_in_radian = 0;
   motor_encoder.previous_time = HAL_GetTick();
 
+  // setup motor
 
+  TIM2->CCR3 = 80;
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+
+  HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 0);
+  HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 1);
+
+  HAL_GPIO_WritePin(MOTOR_ENABLE_GPIO_Port, MOTOR_ENABLE_Pin, 1);
 
   /* USER CODE END 2 */
 
@@ -193,12 +203,20 @@ int main(void)
   {
 	// Encoder loop
 //	update_rotary_encoder(&encoder1, &htim2);
-	update_rotary_encoder(&motor_encoder, &htim3);
+//	update_rotary_encoder(&motor_encoder, &htim3);
+//
+//	// UART communication
+//	sprintf(uart_message, "angular rad/sec: %f \n\r", motor_encoder.velocity_in_radian_per_second);
+//	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
-	// UART communication
-	sprintf(uart_message, "angular rad/sec: %f \n\r", motor_encoder.velocity_in_radian_per_second);
-	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
-
+	  TIM2->CCR3 = 20;
+	  HAL_Delay(1000);
+	  TIM2->CCR3 = 40;
+	  HAL_Delay(1000);
+	  TIM2->CCR3 = 60;
+	  HAL_Delay(1000);
+	  TIM2->CCR3 = 80;
+	  HAL_Delay(1000);
 	// Flash led
 //	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
 //	HAL_Delay(20);
@@ -321,28 +339,29 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
-  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = 84-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 100-1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
-  sConfig.IC1Polarity = TIM_ICPOLARITY_FALLING;
-  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 0;
-  sConfig.IC2Polarity = TIM_ICPOLARITY_FALLING;
-  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 0;
-  if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -352,58 +371,18 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_Encoder_InitTypeDef sConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
-  sConfig.IC1Polarity = TIM_ICPOLARITY_FALLING;
-  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 0;
-  sConfig.IC2Polarity = TIM_ICPOLARITY_FALLING;
-  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 0;
-  if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-
-  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -458,7 +437,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, MOTOR_ENABLE_Pin|LD2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -466,12 +451,26 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pins : MOTOR_ENABLE_Pin LD2_Pin */
+  GPIO_InitStruct.Pin = MOTOR_ENABLE_Pin|LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : MOTOR_ENABLE_CCW_Pin */
+  GPIO_InitStruct.Pin = MOTOR_ENABLE_CCW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(MOTOR_ENABLE_CCW_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : MOTOR_ENABLE_CW_Pin */
+  GPIO_InitStruct.Pin = MOTOR_ENABLE_CW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(MOTOR_ENABLE_CW_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
