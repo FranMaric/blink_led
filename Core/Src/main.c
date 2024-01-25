@@ -90,27 +90,9 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 	uint32_t current_count = __HAL_TIM_GET_COUNTER(htim);
 	uint32_t current_time = HAL_GetTick();
 
-	if (encoder->previous_count == current_count) {
-		encoder->velocity_in_ticks_per_iteration = 0;
-
-	} else if (current_count > encoder->previous_count) {
-
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
-			// underflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder->velocity_in_ticks_per_iteration = -encoder->previous_count - (__HAL_TIM_GET_AUTORELOAD(htim) - current_count);
-		} else {
-			encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
-		}
-
-	} else {
-
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
-			encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
-		} else {
-			// overflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder->velocity_in_ticks_per_iteration = (__HAL_TIM_GET_AUTORELOAD(htim) - encoder->previous_count) + current_count;
-		}
-	}
+	encoder->angle_in_ticks = current_count + __HAL_TIM_GET_AUTORELOAD(htim) / 2.0f;
+	//encoder->angle_in_ticks = current_count - 65535 / 2;
+	encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
 
 	float elapsed_time_seconds;
 
@@ -123,8 +105,7 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 
 	encoder->velocity_in_radian_per_second =  (double) encoder->velocity_in_ticks_per_iteration / ENCODER_TICKS_PER_REVOLUTION * 2 * PI / elapsed_time_seconds;
 
-	encoder->angle_in_ticks += encoder->velocity_in_ticks_per_iteration;
-	encoder->angle_in_radian = (double) encoder->angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 2 * PI;
+	encoder->angle_in_radian = ((double) encoder->angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 2 * PI) - 205.884275f;
 
 	encoder->previous_count = current_count;
 	encoder->previous_time = current_time;
@@ -134,6 +115,7 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 void set_motor_duty_cycle(uint8_t percentage) {
 
 }
+
 
 /* USER CODE END 0 */
 
@@ -175,9 +157,12 @@ int main(void)
   HAL_TIM_Encoder_Start_IT(&htim1, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start_IT(&htim4, TIM_CHANNEL_ALL);
 
+  TIM1->CNT = __HAL_TIM_GET_AUTORELOAD(&htim1) / 2;
+  TIM4->CNT = __HAL_TIM_GET_AUTORELOAD(&htim4) / 2;
+
   rotary_encoder encoder1;
   encoder1.angle_in_ticks = 0;
-  encoder1.previous_count = 0;
+  encoder1.previous_count = __HAL_TIM_GET_AUTORELOAD(&htim4) / 2;
   encoder1.velocity_in_ticks_per_iteration = 0;
   encoder1.velocity_in_radian_per_second = 0;
   encoder1.angle_in_radian = 0;
@@ -185,7 +170,7 @@ int main(void)
 
   rotary_encoder motor_encoder;
   motor_encoder.angle_in_ticks = 0;
-  motor_encoder.previous_count = 0;
+  motor_encoder.previous_count = __HAL_TIM_GET_AUTORELOAD(&htim1) / 2;
   motor_encoder.velocity_in_ticks_per_iteration = 0;
   motor_encoder.velocity_in_radian_per_second = 0;
   motor_encoder.angle_in_radian = 0;
@@ -201,10 +186,16 @@ int main(void)
 //
 //  HAL_GPIO_WritePin(MOTOR_ENABLE_GPIO_Port, MOTOR_ENABLE_Pin, 1);
 
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+
+
   while (1)
   {
 	// Encoder loop
