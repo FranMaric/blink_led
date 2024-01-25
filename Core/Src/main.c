@@ -224,6 +224,20 @@ int main(void)
 	sprintf(uart_message, "motor angle: %f njihalo angle: %f \n\r", motor_encoder.velocity_in_radian_per_second, pendulum_encoder.velocity_in_radian_per_second);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
+	if (motor_encoder.angle_in_radian > PI / 2 || motor_encoder.angle_in_radian < - PI / 2) {
+		set_motor_enabled(0);
+		sprintf(uart_message, "Uhvatio motor limit\n\r");
+		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+		continue;
+	}
+
+	if (fabs(pendulum_encoder.angle_in_radian) > (PI + PI / 6) || fabs(pendulum_encoder.angle_in_radian) < (PI - PI / 6) ) {
+		set_motor_enabled(0);
+		sprintf(uart_message, "Uhvatio pendulum limit\n\r");
+		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+		continue;
+	}
+
 	uRef = K[0] * motor_encoder.angle_in_radian + K[1] * motor_encoder.velocity_in_radian_per_second + K[2] * (pendulum_encoder.angle_in_radian - PI) + K[3] * pendulum_encoder.velocity_in_radian_per_second;
 
 	duty_cycle = uRef / 12 * 100;
