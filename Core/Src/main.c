@@ -195,7 +195,7 @@ int main(void)
 
   set_motor_enabled(0);
 
-  float K[4] = {-1.4142f, -1.8004f, -53.3262f, -5.8135f};
+  float K[4] = {-1.4116f, -1.7972f, -53.2448f, -5.8043f};
   float uRef = 0;
   int8_t duty_cycle = 0;
 
@@ -212,6 +212,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
+  uint32_t flip = 0;
 
 
   while (1)
@@ -224,17 +225,17 @@ int main(void)
 	sprintf(uart_message, "motor angle: %f njihalo angle: %f \n\r", motor_encoder.velocity_in_radian_per_second, pendulum_encoder.velocity_in_radian_per_second);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
-	if (motor_encoder.angle_in_radian > PI / 2 || motor_encoder.angle_in_radian < - PI / 2) {
+	if (motor_encoder.angle_in_radian > PI || motor_encoder.angle_in_radian < - PI) {
 		set_motor_enabled(0);
-		sprintf(uart_message, "Uhvatio motor limit\n\r");
-		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+//		sprintf(uart_message, "Uhvatio motor limit\n\r");
+//		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 		continue;
 	}
 
 	if (fabs(pendulum_encoder.angle_in_radian) > (PI + PI / 6) || fabs(pendulum_encoder.angle_in_radian) < (PI - PI / 6) ) {
 		set_motor_enabled(0);
-		sprintf(uart_message, "Uhvatio pendulum limit\n\r");
-		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+//		sprintf(uart_message, "Uhvatio pendulum limit\n\r");
+//		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 		continue;
 	}
 
@@ -255,7 +256,7 @@ int main(void)
 	}
 
 //	  TIM2->CCR3 = 20;
-//	  HAL_Delay(1000);
+//	  HAL_Delay(1);
 //	  TIM2->CCR3 = 40;
 //	  HAL_Delay(1000);
 //	  TIM2->CCR3 = 60;
@@ -263,7 +264,13 @@ int main(void)
 //	  TIM2->CCR3 = 80;
 //	  HAL_Delay(1000);
 	// Flash led
-//	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+//	if (flip) {
+//		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, 1);
+//		flip = 0;
+//	} else {
+//		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, 0);
+//		flip = 1;
+//	}
 //	HAL_Delay(20);
 //	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
 //	HAL_Delay(40);
@@ -581,10 +588,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, MOTOR_ENABLE_Pin|LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3|MOTOR_ENABLE_CCW_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, MOTOR_ENABLE_Pin|LD2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, GPIO_PIN_RESET);
@@ -595,19 +602,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PC3 MOTOR_ENABLE_CCW_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|MOTOR_ENABLE_CCW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pins : MOTOR_ENABLE_Pin LD2_Pin */
   GPIO_InitStruct.Pin = MOTOR_ENABLE_Pin|LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : MOTOR_ENABLE_CCW_Pin */
-  GPIO_InitStruct.Pin = MOTOR_ENABLE_CCW_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(MOTOR_ENABLE_CCW_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : MOTOR_ENABLE_CW_Pin */
   GPIO_InitStruct.Pin = MOTOR_ENABLE_CW_Pin;
