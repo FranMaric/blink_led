@@ -68,9 +68,11 @@ static void MX_TIM4_Init(void);
 /* USER CODE BEGIN 0 */
 
 // CONSTANTS
-#define ENCODER_TICKS_PER_REVOLUTION 2000
+#define PENDULUM_ENCODER_TICKS_PER_REVOLUTION 4000
+#define MOTOR_ENCODER_TICKS_PER_REVOLUTION 4000
 #define PI 3.14159265358979323846
 
+#define TIMER_REGISTER_SIZE 65535
 uint8_t uart_message[100] = {'\0'};
 
 typedef struct {
@@ -86,31 +88,11 @@ typedef struct {
 } rotary_encoder;
 
 
-void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
+void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim, uint16_t encoder_ticks_per_revolution) {
 	uint32_t current_count = __HAL_TIM_GET_COUNTER(htim);
 	uint32_t current_time = HAL_GetTick();
 
-	if (encoder->previous_count == current_count) {
-		encoder->velocity_in_ticks_per_iteration = 0;
-
-	} else if (current_count > encoder->previous_count) {
-
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
-			// underflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder->velocity_in_ticks_per_iteration = -encoder->previous_count - (__HAL_TIM_GET_AUTORELOAD(htim) - current_count);
-		} else {
-			encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
-		}
-
-	} else {
-
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
-			encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
-		} else {
-			// overflow happened, AUTORELOAD value is the max timer register size (2^32 - 1)
-			encoder->velocity_in_ticks_per_iteration = (__HAL_TIM_GET_AUTORELOAD(htim) - encoder->previous_count) + current_count;
-		}
-	}
+	encoder->angle_in_ticks = current_count - TIMER_REGISTER_SIZE / 2;
 
 	float elapsed_time_seconds;
 
@@ -121,19 +103,36 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 		elapsed_time_seconds = (UINT32_MAX - current_time + encoder->previous_time) / 1000.0f;
 	}
 
-	encoder->velocity_in_radian_per_second =  (double) encoder->velocity_in_ticks_per_iteration / ENCODER_TICKS_PER_REVOLUTION * 2 * PI / elapsed_time_seconds;
+	encoder->velocity_in_ticks_per_iteration = current_count - encoder->previous_count;
+
+	encoder->velocity_in_radian_per_second =  (double) encoder->velocity_in_ticks_per_iteration / encoder_ticks_per_revolution * 2 * PI / elapsed_time_seconds;
 
 	encoder->angle_in_ticks += encoder->velocity_in_ticks_per_iteration;
-	encoder->angle_in_radian = (double) encoder->angle_in_ticks / ENCODER_TICKS_PER_REVOLUTION * 2 * PI;
+	encoder->angle_in_radian = (double) encoder->angle_in_ticks / encoder_ticks_per_revolution * 2 * PI;
 
 	encoder->previous_count = current_count;
 	encoder->previous_time = current_time;
 }
 
-// percentage should a number between 0 and 100
-void set_motor_duty_cycle(uint8_t percentage) {
+// percentage should a number between 0 and 100, direction = 0 clockwise, direction = 1 counter clockwise
+void set_motor_duty_cycle(uint8_t percentage, uint8_t direction) {
+	TIM2->CCR3 = percentage;
 
+	if(direction == 1) {
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 1);
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 0);
+	} else {
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 0);
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 1);
+	}
+
+	set_motor_enabled(1);
 }
+
+void set_motor_enabled(uint8_t enabled) {
+	HAL_GPIO_WritePin(MOTOR_ENABLE_GPIO_Port, MOTOR_ENABLE_Pin, enabled);
+}
+
 
 /* USER CODE END 0 */
 
@@ -175,17 +174,20 @@ int main(void)
   HAL_TIM_Encoder_Start_IT(&htim1, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start_IT(&htim4, TIM_CHANNEL_ALL);
 
-  rotary_encoder encoder1;
-  encoder1.angle_in_ticks = 0;
-  encoder1.previous_count = 0;
-  encoder1.velocity_in_ticks_per_iteration = 0;
-  encoder1.velocity_in_radian_per_second = 0;
-  encoder1.angle_in_radian = 0;
-  encoder1.previous_time = HAL_GetTick();
+  TIM4->CNT = TIMER_REGISTER_SIZE / 2;
+  TIM1->CNT = TIMER_REGISTER_SIZE / 2;
+
+  rotary_encoder pendulum_encoder;
+  pendulum_encoder.angle_in_ticks = 0;
+  pendulum_encoder.previous_count = TIM4->CNT;
+  pendulum_encoder.velocity_in_ticks_per_iteration = 0;
+  pendulum_encoder.velocity_in_radian_per_second = 0;
+  pendulum_encoder.angle_in_radian = 0;
+  pendulum_encoder.previous_time = HAL_GetTick();
 
   rotary_encoder motor_encoder;
   motor_encoder.angle_in_ticks = 0;
-  motor_encoder.previous_count = 0;
+  motor_encoder.previous_count = TIM1->CNT;
   motor_encoder.velocity_in_ticks_per_iteration = 0;
   motor_encoder.velocity_in_radian_per_second = 0;
   motor_encoder.angle_in_radian = 0;
@@ -196,10 +198,11 @@ int main(void)
   TIM2->CCR3 = 0;
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
 
-//  HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 0);
-//  HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 1);
-//
-//  HAL_GPIO_WritePin(MOTOR_ENABLE_GPIO_Port, MOTOR_ENABLE_Pin, 1);
+  set_motor_enabled(0);
+
+  float K[4] = {-0.9801f, 50.376f, -2.6733f, 6.6189f};
+  float uRef = 0;
+  int8_t duty_cycle = 0;
 
   /* USER CODE END 2 */
 
@@ -208,26 +211,49 @@ int main(void)
   while (1)
   {
 	// Encoder loop
-	update_rotary_encoder(&encoder1, &htim4);
-	update_rotary_encoder(&motor_encoder, &htim1);
+	update_rotary_encoder(&pendulum_encoder, &htim4, PENDULUM_ENCODER_TICKS_PER_REVOLUTION);
+	update_rotary_encoder(&motor_encoder, &htim1, MOTOR_ENCODER_TICKS_PER_REVOLUTION);
 
-//	// UART communication
-	sprintf(uart_message, "motor angle: %f njihalo angle: %f \n\r", motor_encoder.angle_in_radian, encoder1.angle_in_radian);
+	sprintf(uart_message, "motor ticks: %d pendulum ticks: %d \n\r", motor_encoder.angle_in_ticks, pendulum_encoder.angle_in_ticks);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
 
-//	  TIM2->CCR3 = 20;
-//	  HAL_Delay(1000);
-//	  TIM2->CCR3 = 40;
-//	  HAL_Delay(1000);
-//	  TIM2->CCR3 = 60;
-//	  HAL_Delay(1000);
-//	  TIM2->CCR3 = 80;
-//	  HAL_Delay(1000);
-	// Flash led
-//	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-//	HAL_Delay(20);
-//	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-//	HAL_Delay(40);
+	if (motor_encoder.angle_in_radian > PI / 2 || motor_encoder.angle_in_radian < - PI / 2) {
+		set_motor_enabled(0);
+		sprintf(uart_message, "Uhvatio motor limit\n\r");
+//		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+		continue;
+	}
+
+	sprintf(uart_message, "pendulum angle: %f\n\r", pendulum_encoder.angle_in_radian);
+//	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+
+	if (fabs(pendulum_encoder.angle_in_radian) > (PI + PI / 6) || fabs(pendulum_encoder.angle_in_radian) < (PI - PI / 6) ) {
+		set_motor_enabled(0);
+		sprintf(uart_message, "Uhvatio pendulum limit\n\r");
+//		HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+		continue;
+	}
+
+	uRef = K[0] * motor_encoder.angle_in_radian + K[1] * motor_encoder.velocity_in_radian_per_second + K[2] * (pendulum_encoder.angle_in_radian - PI) + K[3] * pendulum_encoder.velocity_in_radian_per_second;
+
+	duty_cycle = uRef / 12 * 100;
+
+	if (duty_cycle > 100) {
+		duty_cycle = 100;
+	} else if (duty_cycle < -100) {
+		duty_cycle = -100;
+	}
+
+	if (duty_cycle > 0) {
+		set_motor_duty_cycle(duty_cycle, 1);
+	} else {
+		set_motor_duty_cycle(-duty_cycle, 0);
+	}
+
+//	// UART communication
+//	sprintf(uart_message, "duty_cycle: %d \n\r", duty_cycle);
+//	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -358,7 +384,7 @@ static void MX_TIM1_Init(void)
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
   sConfig.IC1Polarity = TIM_ICPOLARITY_FALLING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
@@ -466,7 +492,7 @@ static void MX_TIM4_Init(void)
   htim4.Init.Period = 65535;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
   sConfig.IC1Polarity = TIM_ICPOLARITY_FALLING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
