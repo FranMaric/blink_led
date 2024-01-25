@@ -111,11 +111,23 @@ void update_rotary_encoder(rotary_encoder* encoder, TIM_HandleTypeDef *htim) {
 	encoder->previous_time = current_time;
 }
 
-// percentage should a number between 0 and 100
-void set_motor_duty_cycle(uint8_t percentage) {
+void set_motor_duty_cycle(uint8_t percentage, uint8_t direction) {
+	TIM2->CCR3 = percentage;
 
+	if(direction == 1) {
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 1);
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 0);
+	} else {
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 0);
+		HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 1);
+	}
+
+	set_motor_enabled(1);
 }
 
+void set_motor_enabled(uint8_t enabled) {
+	HAL_GPIO_WritePin(MOTOR_ENABLE_GPIO_Port, MOTOR_ENABLE_Pin, enabled);
+}
 
 /* USER CODE END 0 */
 
@@ -160,13 +172,13 @@ int main(void)
   TIM1->CNT = __HAL_TIM_GET_AUTORELOAD(&htim1) / 2;
   TIM4->CNT = __HAL_TIM_GET_AUTORELOAD(&htim4) / 2;
 
-  rotary_encoder encoder1;
-  encoder1.angle_in_ticks = 0;
-  encoder1.previous_count = __HAL_TIM_GET_AUTORELOAD(&htim4) / 2;
-  encoder1.velocity_in_ticks_per_iteration = 0;
-  encoder1.velocity_in_radian_per_second = 0;
-  encoder1.angle_in_radian = 0;
-  encoder1.previous_time = HAL_GetTick();
+  rotary_encoder pendulum_encoder;
+  pendulum_encoder.angle_in_ticks = 0;
+  pendulum_encoder.previous_count = __HAL_TIM_GET_AUTORELOAD(&htim4) / 2;
+  pendulum_encoder.velocity_in_ticks_per_iteration = 0;
+  pendulum_encoder.velocity_in_radian_per_second = 0;
+  pendulum_encoder.angle_in_radian = 0;
+  pendulum_encoder.previous_time = HAL_GetTick();
 
   rotary_encoder motor_encoder;
   motor_encoder.angle_in_ticks = 0;
@@ -180,6 +192,12 @@ int main(void)
 
   TIM2->CCR3 = 0;
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+
+  set_motor_enabled(0);
+
+  float K[4] = {-1.4142f, -1.8004f, -53.3262f, -5.8135f};
+  float uRef = 0;
+  int8_t duty_cycle = 0;
 
 //  HAL_GPIO_WritePin(MOTOR_ENABLE_CCW_GPIO_Port, MOTOR_ENABLE_CCW_Pin, 0);
 //  HAL_GPIO_WritePin(MOTOR_ENABLE_CW_GPIO_Port, MOTOR_ENABLE_CW_Pin, 1);
@@ -199,12 +217,28 @@ int main(void)
   while (1)
   {
 	// Encoder loop
-	update_rotary_encoder(&encoder1, &htim4);
+	update_rotary_encoder(&pendulum_encoder, &htim4);
 	update_rotary_encoder(&motor_encoder, &htim1);
 
 //	// UART communication
-	sprintf(uart_message, "motor angle: %f njihalo angle: %f \n\r", motor_encoder.angle_in_radian, encoder1.angle_in_radian);
+	sprintf(uart_message, "motor angle: %f njihalo angle: %f \n\r", motor_encoder.velocity_in_radian_per_second, pendulum_encoder.velocity_in_radian_per_second);
 	HAL_UART_Transmit(&huart2, uart_message, sizeof(uart_message), HAL_MAX_DELAY);
+
+	uRef = K[0] * motor_encoder.angle_in_radian + K[1] * motor_encoder.velocity_in_radian_per_second + K[2] * (pendulum_encoder.angle_in_radian - PI) + K[3] * pendulum_encoder.velocity_in_radian_per_second;
+
+	duty_cycle = uRef / 12 * 100;
+
+	if (duty_cycle > 100) {
+		duty_cycle = 100;
+	} else if (duty_cycle < -100) {
+		duty_cycle = -100;
+	}
+
+	if (duty_cycle > 0) {
+		set_motor_duty_cycle(duty_cycle, 1);
+	} else {
+		set_motor_duty_cycle(-duty_cycle, 0);
+	}
 
 //	  TIM2->CCR3 = 20;
 //	  HAL_Delay(1000);
